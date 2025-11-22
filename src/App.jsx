@@ -14,6 +14,9 @@ export default function App() {
   const [ytUrl, setYtUrl] = useState('')
   const [ytError, setYtError] = useState('')
   const [ytLoading, setYtLoading] = useState(false)
+  const [ytAck, setYtAck] = useState(false)
+  const [ytProgress, setYtProgress] = useState(null) // null | number 0-100
+  const [ytStatus, setYtStatus] = useState('')
 
   useEffect(() => {
     if (screen === 'leaderboard') {
@@ -49,21 +52,89 @@ export default function App() {
     <button disabled={disabled} onClick={onClick} className={`px-4 py-2 rounded-lg font-semibold transition-colors ${disabled ? 'opacity-60 cursor-not-allowed' : ''} ${variant === 'primary' ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-blue-100'}`}>{children}</button>
   )
 
+  const saveBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename || 'video.mp4'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
   const startYtDownload = async () => {
     setYtError('')
+    setYtStatus('')
+    setYtProgress(null)
     if (!ytUrl || !/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i.test(ytUrl)) {
       setYtError('Please paste a valid YouTube URL')
       return
     }
+    if (!ytAck) {
+      setYtError('Please confirm you have rights to download this content')
+      return
+    }
+
     try {
       setYtLoading(true)
-      // Navigate the browser to the download endpoint so it streams as a file
-      window.location.href = `${backendBase}/api/download?url=${encodeURIComponent(ytUrl)}`
-      // We keep loading state minimal; navigation will take over
-      setTimeout(() => setYtLoading(false), 3000)
+      setYtStatus('Preparing...')
+
+      // Prefer streaming fetch to keep user on the page and show progress
+      const res = await fetch(`${backendBase}/api/download?url=${encodeURIComponent(ytUrl)}`)
+
+      if (!res.ok) {
+        let detail = 'Download failed'
+        try {
+          const data = await res.json()
+          detail = data?.detail || detail
+        } catch {}
+        throw new Error(detail)
+      }
+
+      // Try to infer a filename
+      const disp = res.headers.get('Content-Disposition') || ''
+      const match = /filename="?([^";]+)"?/i.exec(disp)
+      const filename = match ? match[1] : 'video.mp4'
+
+      const contentLength = parseInt(res.headers.get('Content-Length') || '0', 10)
+
+      if (res.body && 'getReader' in res.body) {
+        const reader = res.body.getReader()
+        const chunks = []
+        let received = 0
+        setYtStatus('Downloading...')
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (value) {
+            chunks.push(value)
+            received += value.length || value.byteLength || 0
+            if (contentLength > 0) {
+              setYtProgress(Math.min(100, Math.round((received / contentLength) * 100)))
+            } else {
+              // Indeterminate progress
+              setYtProgress(null)
+            }
+          }
+        }
+        const blob = new Blob(chunks, { type: 'video/mp4' })
+        saveBlob(blob, filename)
+      } else {
+        // Fallback: just blob the whole response
+        const blob = await res.blob()
+        saveBlob(blob, filename)
+      }
+
+      setYtStatus('Ready')
     } catch (e) {
+      setYtError(e?.message || 'Unable to download the video')
+    } finally {
       setYtLoading(false)
-      setYtError('Unable to start download')
+      setTimeout(() => {
+        setYtStatus('')
+        setYtProgress(null)
+      }, 1500)
     }
   }
 
@@ -111,19 +182,35 @@ export default function App() {
 
             <Card>
               <h3 className="text-lg font-semibold mb-2">YouTube Downloader</h3>
-              <p className="text-sm text-blue-300/80 mb-3">Paste a YouTube link to download the video, only for content you own or have permission to save.</p>
+              <p className="text-sm text-blue-300/80 mb-3">Paste a YouTube link to download the video. Only use this for content you own or that has a permissive license.</p>
               <input
                 value={ytUrl}
                 onChange={e => setYtUrl(e.target.value)}
                 placeholder="https://www.youtube.com/watch?v=..."
                 className="w-full bg-slate-900/60 border border-blue-500/30 rounded px-3 py-2 outline-none focus:border-blue-400"
               />
+              <label className="mt-3 flex items-center gap-2 text-xs text-blue-200/80">
+                <input type="checkbox" checked={ytAck} onChange={e => setYtAck(e.target.checked)} />
+                I confirm I have rights or permission to download this content.
+              </label>
               {ytError && <div className="text-red-400 text-sm mt-2">{ytError}</div>}
-              <div className="mt-3 flex gap-2">
-                <Button onClick={startYtDownload} disabled={ytLoading || !ytUrl}>{ytLoading ? 'Preparing...' : 'Download'}</Button>
-                <Button variant="secondary" onClick={() => { setYtUrl(''); setYtError('') }}>Clear</Button>
+              <div className="mt-3 flex gap-2 items-center">
+                <Button onClick={startYtDownload} disabled={ytLoading || !ytUrl || !ytAck}>{ytLoading ? 'Downloading...' : 'Download'}</Button>
+                <Button variant="secondary" onClick={() => { setYtUrl(''); setYtError(''); setYtProgress(null); setYtStatus(''); setYtAck(false) }}>Clear</Button>
+                {ytStatus && <span className="text-xs text-blue-300/80">{ytStatus}</span>}
               </div>
-              <div className="text-[11px] text-blue-300/60 mt-3">This tool respects creators’ rights. Make sure the video license allows downloading, or that it’s your own content.</div>
+              {ytLoading && (
+                <div className="mt-3">
+                  {typeof ytProgress === 'number' ? (
+                    <div className="w-full bg-slate-700 rounded h-2 overflow-hidden">
+                      <div className="bg-blue-500 h-2 transition-all" style={{ width: `${ytProgress}%` }} />
+                    </div>
+                  ) : (
+                    <div className="text-xs text-blue-300/70">Downloading…</div>
+                  )}
+                </div>
+              )}
+              <div className="text-[11px] text-blue-300/60 mt-3">Respect creators’ rights. Check the license and terms before downloading.</div>
             </Card>
           </div>
         )}
