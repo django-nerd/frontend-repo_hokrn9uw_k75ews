@@ -19,6 +19,10 @@ export default function App() {
   const [ytStatus, setYtStatus] = useState('')
 
   useEffect(() => {
+    document.title = 'YT Video Downloader'
+  }, [])
+
+  useEffect(() => {
     if (screen === 'leaderboard') {
       fetch(`${backendBase}/api/leaderboard`).then(r => r.json()).then(d => setLeaderboard(d.items || [])).catch(() => setLeaderboard([]))
     }
@@ -145,8 +149,8 @@ export default function App() {
           <div className="flex items-center gap-3">
             <img src="/flame-icon.svg" className="w-10 h-10" />
             <div>
-              <h1 className="text-2xl font-bold">Stealth Agent</h1>
-              <p className="text-blue-300/70 text-sm">Minimal top-down stealth challenge</p>
+              <h1 className="text-2xl font-bold">YT Video Downloader</h1>
+              <p className="text-blue-300/70 text-sm">Download YouTube videos and play a quick stealth mission</p>
             </div>
           </div>
           <div className="text-right text-blue-200/80">
