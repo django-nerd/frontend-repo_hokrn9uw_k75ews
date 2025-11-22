@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import GameCanvas from './components/GameCanvas'
 
 const backendBase = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
@@ -10,6 +10,10 @@ export default function App() {
   const [name, setName] = useState('Agent')
   const [score, setScore] = useState(null)
   const [leaderboard, setLeaderboard] = useState([])
+
+  const [ytUrl, setYtUrl] = useState('')
+  const [ytError, setYtError] = useState('')
+  const [ytLoading, setYtLoading] = useState(false)
 
   useEffect(() => {
     if (screen === 'leaderboard') {
@@ -41,9 +45,27 @@ export default function App() {
     <div className={`bg-slate-800/60 backdrop-blur border border-blue-500/20 rounded-2xl p-6 shadow-xl ${className}`}>{children}</div>
   )
 
-  const Button = ({ children, onClick, variant = 'primary' }) => (
-    <button onClick={onClick} className={`px-4 py-2 rounded-lg font-semibold transition-colors ${variant === 'primary' ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-blue-100'}`}>{children}</button>
+  const Button = ({ children, onClick, variant = 'primary', disabled = false }) => (
+    <button disabled={disabled} onClick={onClick} className={`px-4 py-2 rounded-lg font-semibold transition-colors ${disabled ? 'opacity-60 cursor-not-allowed' : ''} ${variant === 'primary' ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-blue-100'}`}>{children}</button>
   )
+
+  const startYtDownload = async () => {
+    setYtError('')
+    if (!ytUrl || !/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i.test(ytUrl)) {
+      setYtError('Please paste a valid YouTube URL')
+      return
+    }
+    try {
+      setYtLoading(true)
+      // Navigate the browser to the download endpoint so it streams as a file
+      window.location.href = `${backendBase}/api/download?url=${encodeURIComponent(ytUrl)}`
+      // We keep loading state minimal; navigation will take over
+      setTimeout(() => setYtLoading(false), 3000)
+    } catch (e) {
+      setYtLoading(false)
+      setYtError('Unable to start download')
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6">
@@ -63,28 +85,47 @@ export default function App() {
         </header>
 
         {screen === 'menu' && (
-          <Card>
-            <div className="flex flex-col md:flex-row gap-6 items-start">
-              <div className="md:w-2/3 w-full">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card className="lg:col-span-2">
+              <div className="flex flex-col gap-6 items-start">
                 <GameCanvas level={level} onWin={handleWin} onLose={handleLose} setHud={setHud} />
+                <div className="w-full space-y-4">
+                  <div className="flex gap-3">
+                    <Button onClick={() => setScreen('game')}>Start Mission</Button>
+                    <Button variant="secondary" onClick={() => setScreen('leaderboard')}>Leaderboard</Button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-blue-200/80 mb-1">Codename</label>
+                      <input value={name} onChange={e => setName(e.target.value)} className="w-full bg-slate-900/60 border border-blue-500/30 rounded px-3 py-2 outline-none focus:border-blue-400" />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-blue-200/80 mb-1">Level</label>
+                      <input type="range" min={1} max={6} value={level} onChange={e => setLevel(parseInt(e.target.value))} className="w-full" />
+                      <div className="text-sm text-blue-300/80">{level}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="md:w-1/3 w-full space-y-4">
-                <div>
-                  <label className="block text-sm text-blue-200/80 mb-1">Codename</label>
-                  <input value={name} onChange={e => setName(e.target.value)} className="w-full bg-slate-900/60 border border-blue-500/30 rounded px-3 py-2 outline-none focus:border-blue-400" />
-                </div>
-                <div>
-                  <label className="block text-sm text-blue-200/80 mb-1">Level</label>
-                  <input type="range" min={1} max={6} value={level} onChange={e => setLevel(parseInt(e.target.value))} className="w-full" />
-                  <div className="text-sm text-blue-300/80">{level}</div>
-                </div>
-                <div className="flex gap-3">
-                  <Button onClick={() => setScreen('game')}>Start Mission</Button>
-                  <Button variant="secondary" onClick={() => setScreen('leaderboard')}>Leaderboard</Button>
-                </div>
+            </Card>
+
+            <Card>
+              <h3 className="text-lg font-semibold mb-2">YouTube Downloader</h3>
+              <p className="text-sm text-blue-300/80 mb-3">Paste a YouTube link to download the video, only for content you own or have permission to save.</p>
+              <input
+                value={ytUrl}
+                onChange={e => setYtUrl(e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=..."
+                className="w-full bg-slate-900/60 border border-blue-500/30 rounded px-3 py-2 outline-none focus:border-blue-400"
+              />
+              {ytError && <div className="text-red-400 text-sm mt-2">{ytError}</div>}
+              <div className="mt-3 flex gap-2">
+                <Button onClick={startYtDownload} disabled={ytLoading || !ytUrl}>{ytLoading ? 'Preparing...' : 'Download'}</Button>
+                <Button variant="secondary" onClick={() => { setYtUrl(''); setYtError('') }}>Clear</Button>
               </div>
-            </div>
-          </Card>
+              <div className="text-[11px] text-blue-300/60 mt-3">This tool respects creators’ rights. Make sure the video license allows downloading, or that it’s your own content.</div>
+            </Card>
+          </div>
         )}
 
         {screen === 'game' && (
